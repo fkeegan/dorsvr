@@ -30,7 +30,7 @@ type RTSPClient struct {
 
 type RTSPSClient struct {
 	RTSPClient
-	tcpConn *tls.TCPConn
+	tcpConn *tls.Conn
 }
 
 type RequestRecord struct {
