@@ -206,17 +206,14 @@ func (this *RTSPClient) connectToServer(host string, port int) bool {
 
 	if this.tlsEnabled == true {
 		// strippedURL := this.baseURL[7:len(this.baseURL)]
-		strippedURL := "rtsp.ring-labs.com:443"
-
-		// dialer := &net.Dialer{
-		// 	Timeout: 10 * time.Millisecond,
-		// }
+		strippedURL := addr.IP.String() + ":" + strconv.Itoa(addr.Port)
+		// fmt.Println("Type of addr.Port:", reflect.TypeOf(addr.Port))
+		// fmt.Println("addr.IP to string: ", string(addr.Port))
 
 		conf := &tls.Config{
 			InsecureSkipVerify: true,
 		}
 
-		// this.tlsConn, err = tls.DialWithDialer(dialer, "tcp", strippedURL, nil)
 		this.tlsConn, err = tls.Dial("tcp", strippedURL, conf)
 		if err != nil {
 			fmt.Println("Failed to connect to secure server.", err)
