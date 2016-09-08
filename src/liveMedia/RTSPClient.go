@@ -21,16 +21,13 @@ type RTSPClient struct {
 	tunnelOverHTTPPortNum         int
 	responseBufferBytesLeft       uint
 	responseBytesAlreadySeen      uint
+	tlsEnabled                    bool
+	tlsConn                       *tls.Conn
 	tcpConn                       *net.TCPConn
 	scs                           *StreamClientState
 	requestsAwaitingResponse      *RequestQueue
 	requestsAwaitingConnection    *RequestQueue
 	requestsAwaitingHTTPTunneling *RequestQueue
-}
-
-type RTSPSClient struct {
-	*RTSPClient
-	tcpConn *tls.Conn
 }
 
 type RequestRecord struct {
@@ -48,6 +45,7 @@ type ResponseHandler interface {
 
 func NewRTSPClient(rtspURL, appName string) *RTSPClient {
 	rtspClient := new(RTSPClient)
+	rtspClient.tlsEnabled = false
 	rtspClient.InitRTSPClient(rtspURL, appName)
 	return rtspClient
 }
@@ -108,6 +106,11 @@ func (this *RTSPClient) InitRTSPClient(rtspURL, appName string) {
 
 	userAgentName := fmt.Sprintf("%s%s%s%s%s", appName, libPrefix, libName, libVersionStr, libSuffix)
 	this.SetUserAgentString(userAgentName)
+}
+
+func (this *RTSPClient) EnableTLS() bool {
+	this.tlsEnabled = true
+	return this.tlsEnabled
 }
 
 func (this *RTSPClient) SCS() *StreamClientState {
@@ -201,10 +204,30 @@ func (this *RTSPClient) connectToServer(host string, port int) bool {
 		return false
 	}
 
-	this.tcpConn, err = net.DialTCP("tcp", nil, addr)
-	if err != nil {
-		fmt.Println("Failed to connect to server.", err)
-		return false
+	if this.tlsEnabled == true {
+		// strippedURL := this.baseURL[7:len(this.baseURL)]
+		strippedURL := "rtsp.ring-labs.com:443"
+
+		// dialer := &net.Dialer{
+		// 	Timeout: 10 * time.Millisecond,
+		// }
+
+		conf := &tls.Config{
+			InsecureSkipVerify: true,
+		}
+
+		// this.tlsConn, err = tls.DialWithDialer(dialer, "tcp", strippedURL, nil)
+		this.tlsConn, err = tls.Dial("tcp", strippedURL, conf)
+		if err != nil {
+			fmt.Println("Failed to connect to secure server.", err)
+			return false
+		}
+	} else {
+		this.tcpConn, err = net.DialTCP("tcp", nil, addr)
+		if err != nil {
+			fmt.Println("Failed to connect to server.", err)
+			return false
+		}
 	}
 
 	return true
@@ -231,6 +254,7 @@ func (this *RTSPClient) parseRTSPURL(url string) (*RTSPURL, bool) {
 		ret := strings.HasPrefix(url, prefix)
 		if !ret {
 			fmt.Println("URL is not of the form \"" + prefix + "\"")
+			fmt.Println("The URL is", url)
 			break
 		}
 
@@ -283,16 +307,30 @@ func (this *RTSPClient) parseRTSPURL(url string) (*RTSPURL, bool) {
 }
 
 func (this *RTSPClient) incomingDataHandler() {
-	defer this.tcpConn.Close()
-	for {
-		readBytes, err := ReadSocket(this.tcpConn, this.responseBuffer)
-		if err != nil {
-			fmt.Println("[readSocket]", err.Error())
-			break
-		}
+	if this.tlsEnabled == true {
+		defer this.tlsConn.Close()
+		for {
+			readBytes, err := ReadSocket(this.tlsConn, this.responseBuffer)
+			if err != nil {
+				fmt.Println("[readSocket]", err.Error())
+				break
+			}
 
-		fmt.Println("[readSocket] success for reading ", readBytes, string(this.responseBuffer))
-		this.handleResponseBytes(this.responseBuffer, readBytes)
+			fmt.Println("[readSocket] success for reading ", readBytes, string(this.responseBuffer))
+			this.handleResponseBytes(this.responseBuffer, readBytes)
+		}
+	} else {
+		defer this.tcpConn.Close()
+		for {
+			readBytes, err := ReadSocket(this.tcpConn, this.responseBuffer)
+			if err != nil {
+				fmt.Println("[readSocket]", err.Error())
+				break
+			}
+
+			fmt.Println("[readSocket] success for reading ", readBytes, string(this.responseBuffer))
+			this.handleResponseBytes(this.responseBuffer, readBytes)
+		}
 	}
 }
 
@@ -447,7 +485,7 @@ func (this *RTSPClient) sendRequest(request *RequestRecord) int {
 	var connectionIsPending bool
 	if !this.requestsAwaitingConnection.isEmpty() {
 		connectionIsPending = true
-	} else if this.tcpConn == nil {
+	} else if this.tcpConn == nil && this.tlsConn == nil {
 		if !this.openConnection() {
 			fmt.Println("Failed to open Connection.")
 			return 0
@@ -513,7 +551,14 @@ func (this *RTSPClient) sendRequest(request *RequestRecord) int {
 		contentLengthHeader,
 		contentStr)
 
-	writeBytes, err := this.tcpConn.Write([]byte(cmd))
+	var writeBytes int
+	var err error
+	if this.tlsEnabled == true {
+		writeBytes, err = this.tlsConn.Write([]byte(cmd))
+	} else {
+		writeBytes, err = this.tcpConn.Write([]byte(cmd))
+	}
+
 	if err != nil {
 		fmt.Println("RTSPClient::sendRequst", err, writeBytes)
 		this.handleRequestError(request)
