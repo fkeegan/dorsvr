@@ -1,6 +1,7 @@
 package liveMedia
 
 import (
+	"crypto/tls"
 	"fmt"
 	. "groupsock"
 	. "include"
@@ -25,6 +26,11 @@ type RTSPClient struct {
 	requestsAwaitingResponse      *RequestQueue
 	requestsAwaitingConnection    *RequestQueue
 	requestsAwaitingHTTPTunneling *RequestQueue
+}
+
+type RTSPSClient struct {
+	RTSPClient
+	tcpConn *tls.TCPConn
 }
 
 type RequestRecord struct {
