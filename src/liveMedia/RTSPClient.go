@@ -29,7 +29,7 @@ type RTSPClient struct {
 }
 
 type RTSPSClient struct {
-	RTSPClient
+	*RTSPClient
 	tcpConn *tls.Conn
 }
 
